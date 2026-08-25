@@ -53,7 +53,7 @@ function productCard(item) {
 function groupHtml(group) {
   const items = group.items || [];
   const preview = items.slice(0, 5);
-  const stateText = group.status === 'loading' ? '搜索中' : group.status === 'error' ? '失败' : `${group.pages || 0} 页 · ${group.unique || items.length} 件`;
+  const stateText = group.status === 'loading' ? '搜索中' : group.status === 'error' ? '失败' : `请求 ${group.requested_pages || 0} 页 · 实际 ${group.pages || 0} 页 · ${group.unique || items.length} 件`;
   return `<article class="keyword-group ${group.status}">
     <div class="group-head">
       <div class="group-keyword"><span class="group-mark"></span><h3>${esc(group.keyword)}</h3><span class="group-state">${esc(stateText)}</span></div>
@@ -82,7 +82,7 @@ function openResults(keyword) {
   const group = state.groups.find((item) => item.keyword === keyword);
   if (!group) return;
   $('#dialogTitle').textContent = `“${group.keyword}” 的全部商品`;
-  $('#dialogMeta').textContent = `已搜索 ${group.pages || 0} 页 · 去重 ${group.unique || group.items.length} 件 · 当前展示 ${group.items.length} 件`;
+  $('#dialogMeta').textContent = `请求 ${group.requested_pages || 0} 页 · 实际 ${group.pages || 0} 页 · 去重 ${group.unique || group.items.length} 件 · 当前展示 ${group.items.length} 件`;
   $('#dialogGrid').innerHTML = (group.items || []).map(productCard).join('') || '<div class="group-empty">暂无结果</div>';
   $('#resultsDialog').showModal();
 }
@@ -98,6 +98,7 @@ async function searchKeyword(group, pages, target) {
     if (!response.ok) throw new Error(await response.text());
     const data = await response.json();
     group.items = data.items || [];
+    group.requested_pages = data.requested_pages || pages;
     group.pages = data.pages || 0;
     group.unique = data.unique || group.items.length;
     group.status = 'done';

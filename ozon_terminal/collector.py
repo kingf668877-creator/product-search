@@ -20,15 +20,59 @@ OZON_ENTRYPOINT = f"{OZON_BASE}/api/entrypoint-api.bx/page/json/v2"
 OZON_HOST_KZ = "ozon.kz"
 
 
+def _repair_mojibake(value: Any) -> Any:
+    if isinstance(value, str):
+        for _ in range(3):
+            if not any(marker in value for marker in ("Ã", "Ð", "Ñ", "Â", "å", "¤")):
+                break
+            try:
+                repaired = value.encode("latin-1").decode("utf-8")
+            except UnicodeDecodeError:
+                break
+            if repaired == value:
+                break
+            value = repaired
+        return value
+    if isinstance(value, list):
+        return [_repair_mojibake(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _repair_mojibake(item) for key, item in value.items()}
+    return value
+
+
+KEYWORD_EXPANSIONS = {
+    "男士": ("мужской", "мужчина"),
+    "外套": ("куртка", "пальто", "верхняя одежда"),
+}
+
+
+def _decode_json_bytes(content: bytes) -> Any:
+    texts = []
+    for encoding in ("utf-8", "latin-1"):
+        try:
+            text = content.decode(encoding)
+            if encoding == "latin-1":
+                text = text.encode("latin-1").decode("utf-8")
+            texts.append(text)
+        except UnicodeDecodeError:
+            continue
+    last_error: UnicodeDecodeError | json.JSONDecodeError | None = None
+    parsed: list[tuple[str, Any]] = []
+    for text in texts:
+        try:
+            parsed.append((text, json.loads(text)))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            last_error = exc
+    if parsed:
+        return _repair_mojibake(parsed[0][1])
+    raise json.JSONDecodeError("无法解析 Ozon JSON 响应", texts[-1] if texts else "", 0) from last_error
+
+
 def _decode_json_response(response: httpx.Response) -> Any:
     content_type = (response.headers.get("content-type") or "").lower()
     if "application/json" in content_type and "charset=" not in content_type:
         response.encoding = "utf-8"
-    try:
-        return response.json()
-    except json.JSONDecodeError:
-        text = response.content.decode("utf-8", errors="replace")
-        return json.loads(text)
+    return _decode_json_bytes(response.content)
 
 
 def extract_items(payload: Any) -> list[Any]:
@@ -235,6 +279,76 @@ def re_fullmatch(pattern: str, value: str) -> bool:
     return bool(re.fullmatch(pattern, value))
 
 
+def expand_keywords(keyword: str) -> list[str]:
+    value = keyword.strip()
+    replacements = [(chinese, russian_terms) for chinese, russian_terms in KEYWORD_EXPANSIONS.items() if chinese in value]
+    if not replacements:
+        return [value]
+    variants = [value]
+    for chinese, russian_terms in replacements:
+        variants = [variant.replace(chinese, russian) for variant in variants for russian in russian_terms]
+    return list(dict.fromkeys([value, *variants]))
+
+
+def _item_relevance(item: dict[str, Any], terms: list[str]) -> tuple[int, int]:
+    haystack = " ".join(str(item.get(key) or "") for key in ("title", "link"))
+    lowered = haystack.casefold()
+    matches = sum(1 for term in terms if term.casefold() in lowered)
+    return (-matches, terms.index(next((term for term in terms if term.casefold() in lowered), terms[0])))
+
+
+async def _search_term(
+    term: str,
+    cookies: httpx.Cookies | None,
+    target: int,
+    client: httpx.AsyncClient | None = None,
+    page_fetcher: Callable | None = None,
+    max_pages: int | None = None,
+) -> tuple[int, dict[str, dict[str, Any]]]:
+    params: dict[str, Any] = {"url": f"/search/?deny_category_prediction=true&from_global=true&text={quote(term)}"}
+    unique_items: dict[str, dict[str, Any]] = {}
+    pages = 0
+
+    async def consume(payload: Any) -> str | None:
+        nonlocal pages
+        pages += 1
+        for raw in _extract_tile_grid(payload):
+            flat = _flatten_item(raw)
+            sku = str(flat.get("id") or "")
+            if sku and sku not in unique_items:
+                unique_items[sku] = flat
+        return extract_next_page(payload)
+
+    while True:
+        if page_fetcher is not None:
+            payload = await page_fetcher(params["url"])
+        else:
+            try:
+                response = await client.get(OZON_ENTRYPOINT, params=params)
+            except httpx.HTTPError as exc:
+                raise RuntimeError(f"调用 Ozon 接口失败：{type(exc).__name__}") from exc
+            if response.status_code in {403, 429}:
+                raise RuntimeError(f"Ozon 返回 {response.status_code}，可能触发风控，请降低频率或暂停采集")
+            response.raise_for_status()
+            payload = _decode_json_response(response)
+        next_page = await consume(payload)
+        if len(unique_items) >= target or (max_pages is not None and pages >= max_pages):
+            break
+        if next_page:
+            if page_fetcher is not None:
+                params = {"url": next_page}
+            else:
+                params = {"url": next_page} if next_page.startswith(("/", "http://", "https://")) else {"url": params["url"], "page": next_page}
+        else:
+            current_url = params["url"]
+            parsed = urlparse(current_url)
+            query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            query["page"] = str(pages + 1)
+            params = {"url": urlunparse(parsed._replace(query=urlencode(query)))}
+        await asyncio.sleep(0)
+    return pages, unique_items
+
+
 async def search_one_keyword(
     keyword: str,
     cookies: httpx.Cookies | None,
@@ -245,83 +359,41 @@ async def search_one_keyword(
     page_fetcher: Callable | None = None,
     max_pages: int | None = None,
 ) -> dict[str, Any]:
-    """一次性顺序翻页搜索一个关键词，返回商品预览。"""
+    """按原关键词及俄语扩展词搜索，合并去重并按相关性排序。"""
     if not keyword or not keyword.strip():
         raise RuntimeError("关键词不能为空")
-    params: dict[str, Any] = {"url": f"/search/?deny_category_prediction=true&from_global=true&text={quote(keyword.strip())}"}
-    unique_items: dict[str, dict[str, Any]] = {}
-    pages = 0
-
-    async def fetch_via_browser(url_path: str) -> dict[str, Any]:
-        if page_fetcher is None:
-            raise RuntimeError("缺少浏览器代理：请先在前端网页中通过浏览器中转接口请求 Ozon")
-        return await page_fetcher(url_path)
-
+    terms = expand_keywords(keyword)
+    requested_pages = max_pages if max_pages is not None else 100
     if page_fetcher is not None:
-        while True:
-            try:
-                payload = await fetch_via_browser(params["url"])
-            except RuntimeError as exc:
-                raise
-            pages += 1
-            tile_items = _extract_tile_grid(payload)
-            for raw in tile_items:
-                flat = _flatten_item(raw)
-                sku = str(flat.get("id") or "")
-                if sku and sku not in unique_items:
-                    unique_items[sku] = flat
-            next_page = extract_next_page(payload)
-            if not next_page or len(unique_items) >= target or (max_pages is not None and pages >= max_pages):
-                break
-            if isinstance(next_page, str) and next_page.startswith("/"):
-                params = {"url": next_page}
-            else:
-                break
-        items = list(unique_items.values())[:max(1, preview)]
-        return {"keyword": keyword, "pages": pages, "unique": len(unique_items), "returned": len(items), "items": items}
-
-    if cookies is None:
-        raise RuntimeError("需要先导入 Cookie 才能直连 Ozon")
-
-    if client_factory is None:
-        client_cm = httpx.AsyncClient(cookies=cookies, timeout=httpx.Timeout(20), follow_redirects=True)
+        results = [await _search_term(term, None, target, page_fetcher=page_fetcher, max_pages=requested_pages) for term in terms]
     else:
-        produced = client_factory(cookies)
-        if hasattr(produced, "__await__"):
-            produced = await produced
-        if not isinstance(produced, httpx.AsyncClient):
-            raise RuntimeError("client_factory 必须返回 httpx.AsyncClient")
-        client_cm = produced
-    async with client_cm as client:
-        while True:
-            try:
-                response = await client.get(OZON_ENTRYPOINT, params=params)
-            except httpx.HTTPError as exc:
-                raise RuntimeError(f"调用 Ozon 接口失败：{type(exc).__name__}") from exc
-            if response.status_code in {403, 429}:
-                raise RuntimeError(f"Ozon 返回 {response.status_code}，可能触发风控，请降低频率或暂停采集")
-            response.raise_for_status()
-            payload = _decode_json_response(response)
-            pages += 1
-            tile_items = _extract_tile_grid(payload)
-            for raw in tile_items:
-                flat = _flatten_item(raw)
-                sku = str(flat.get("id") or "")
-                if sku and sku not in unique_items:
-                    unique_items[sku] = flat
-            next_page = extract_next_page(payload)
-            if not next_page or len(unique_items) >= target or (max_pages is not None and pages >= max_pages):
-                break
-            if isinstance(next_page, str) and next_page.startswith("/"):
-                params = {"url": next_page}
-            else:
-                break
-            await asyncio.sleep(0)
-    items = list(unique_items.values())[:max(1, preview)]
+        if cookies is None:
+            raise RuntimeError("需要先导入 Cookie 才能直连 Ozon")
+        if client_factory is None:
+            client_cm = httpx.AsyncClient(cookies=cookies, timeout=httpx.Timeout(20), follow_redirects=True)
+        else:
+            produced = client_factory(cookies)
+            if hasattr(produced, "__await__"):
+                produced = await produced
+            if not isinstance(produced, httpx.AsyncClient):
+                raise RuntimeError("client_factory 必须返回 httpx.AsyncClient")
+            client_cm = produced
+        async with client_cm as client:
+            results = [await _search_term(term, cookies, target, client=client, max_pages=requested_pages) for term in terms]
+    merged: dict[str, dict[str, Any]] = {}
+    for term, (_, items) in zip(terms, results):
+        for sku, item in items.items():
+            item.setdefault("_matched_terms", []).append(term)
+            merged.setdefault(sku, item)
+    ordered = sorted(merged.values(), key=lambda item: _item_relevance(item, terms))
+    for item in ordered:
+        item.pop("_matched_terms", None)
+    items = ordered[:max(1, preview)]
     return {
         "keyword": keyword,
-        "pages": pages,
-        "unique": len(unique_items),
+        "requested_pages": requested_pages,
+        "pages": max((page_count for page_count, _ in results), default=0),
+        "unique": len(merged),
         "returned": len(items),
         "items": items,
     }
