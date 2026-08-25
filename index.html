@@ -15,7 +15,7 @@
     </div>
     <nav class="tabs">
       <a href="/">数据终端</a>
-      <a class="active" href="/picks.html">选品库</a>
+      <a class="active" href="/product-search/">选品库</a>
     </nav>
     <div class="health">
       <span id="cookieDot" class="dot"></span>
@@ -28,7 +28,7 @@
       <div id="statusBar" class="status-bar loading">正在检查本地服务状态…</div>
       <h2>批量检索</h2>
       <label>关键词列表
-        <textarea id="keywords" rows="8" placeholder="每行一个关键词，例如：\n连衣裙\nботинки\nплатье"></textarea>
+        <textarea id="keywords" rows="8" placeholder="每行一个关键词，例如：\n男士\n外套\nботинки"></textarea>
       </label>
       <label>搜索页数
         <select id="pages">
@@ -42,26 +42,34 @@
       <label>每个关键词最多返回
         <input id="target" type="number" min="5" max="2000" value="120">
       </label>
-      <button id="searchBtn" class="primary">批量开始搜索</button>
+      <div class="rail-actions">
+        <button id="searchBtn" class="primary">批量开始搜索</button>
+        <button id="cancelBtn" class="ghost cancel-btn" type="button" disabled>停止当前批次</button>
+      </div>
       <p class="hint" id="hint">首次使用请先粘贴 Ozon Cookie Header。搜索结果按关键词分组，默认展示每组前 5 个商品。</p>
     </aside>
     <section class="picks-results">
       <div class="results-head">
         <div>
-          <span class="eyebrow">BATCH RESULTS</span>
+          <span class="eyebrow">BATCH WORKBENCH</span>
           <h2 id="resultTitle">输入关键词开始检索</h2>
         </div>
         <div class="result-meta" id="resultMeta"></div>
       </div>
+      <section id="taskBoard" class="task-board" hidden>
+        <div class="task-summary">
+          <div><span class="eyebrow">LIVE TASKS</span><strong id="taskSummaryText">等待开始</strong></div>
+          <span id="taskSummaryCount" class="task-count">0 / 0</span>
+        </div>
+        <div class="overall-progress"><span id="overallProgressBar"></span></div>
+        <div id="taskList" class="task-list"></div>
+      </section>
       <div id="groups" class="groups empty">暂无结果</div>
     </section>
   </main>
   <dialog id="resultsDialog" class="results-dialog">
     <div class="dialog-head">
-      <div>
-        <span class="eyebrow">KEYWORD RESULTS</span>
-        <h3 id="dialogTitle">商品结果</h3>
-      </div>
+      <div><span class="eyebrow">KEYWORD RESULTS</span><h3 id="dialogTitle">商品结果</h3></div>
       <button id="closeResults" class="icon-close" type="button" aria-label="关闭">×</button>
     </div>
     <div id="dialogMeta" class="dialog-meta"></div>
@@ -70,12 +78,9 @@
   <dialog id="cookieDialog">
     <form method="dialog">
       <h3>粘贴 Ozon Cookie Header</h3>
-      <p>在已登录 Ozon 的标签页按 F12 → Network → 任意请求 → 复制 <b>Cookie</b> 请求头整段。</p>
+      <p>在已登录 Ozon 的标签页按 F12 → Network → 任意请求 → 复制 Cookie 请求头整段。</p>
       <textarea id="cookieTextarea" rows="6" placeholder="x-hng=...; _nano_fp=...; ..."></textarea>
-      <menu>
-        <button value="cancel" class="ghost">取消</button>
-        <button value="ok" class="primary" id="uploadBtn">上传</button>
-      </menu>
+      <menu><button value="cancel" class="ghost">取消</button><button value="ok" class="primary" id="uploadBtn">上传</button></menu>
     </form>
   </dialog>
   <script src="picks.js"></script>
