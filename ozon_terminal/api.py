@@ -57,6 +57,7 @@ class CookieHeaderPayload(BaseModel):
 def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAPI:
     db = Database(db_path or os.getenv("OZON_TERMINAL_DB", "ozon_terminal.db"))
     vault = CookieVault()
+    vault.load_from_db(db)  # 从 SQLite 恢复历史 Cookie
     runner = JobRunner(db, vault, client_factory)
     browser_proxy = BrowserProxy()
 
@@ -94,6 +95,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
     @app.delete("/api/cookies")
     def clear_cookies():
         vault.clear()
+        db.clear_cookie_header()
         return {"ready": False}
 
     @app.post("/api/cookies/upload")
@@ -110,6 +112,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
             count = vault.load_from_header(payload.header, payload.domain)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+        vault.save_to_db(db)
         return {"ready": True, "count": count}
 
     @app.get("/api/jobs")

@@ -14,12 +14,12 @@
 # 安装依赖
 python -m pip install -e ".[test]"
 
-# 启动本地服务
-python -m ozon_terminal serve --host 127.0.0.1 --port 8000
+# 启动本地服务（默认端口 9001）
+python -m ozon_terminal serve --host 127.0.0.1 --port 9001
 
 # 打开浏览器
-# 1) 数据终端 http://127.0.0.1:8000/
-# 2) 选品库   http://127.0.0.1:8000/picks.html
+# 1) 数据终端 http://127.0.0.1:9001/
+# 2) 选品库   http://127.0.0.1:9001/picks.html
 ```
 
 ## 字段说明
@@ -41,9 +41,10 @@ python -m ozon_terminal serve --host 127.0.0.1 --port 8000
 
 ## 安全说明
 
-- Cookie 始终只驻留在进程内存中
-- 不会写入 SQLite、CSV/JSON 或日志
-- 服务退出或调用 `/api/cookies` 时自动清除
+- 默认端口 9001，避免与常见服务冲突
+- Cookie 会上传到内存中，且在收到 `POST /api/cookies/header` 或 `POST /api/cookies/import` 时自动写入本地 SQLite，方便服务重启后自动恢复
+- 不会随 CSV/JSON 导出；服务退出或调用 `DELETE /api/cookies` 时会同时清除内存与数据库
+- Ozon 的会话 token 有 TTL，过期后需重新粘贴 Cookie Header
 
 ## 仓库地址
 

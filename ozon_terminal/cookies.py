@@ -1,19 +1,22 @@
 from __future__ import annotations
 
+import sqlite3
 import threading
 from http.cookiejar import CookieJar
-from typing import Iterable
+from typing import Iterable, Optional
 
 import httpx
 
 
 class CookieVault:
-    """Process-memory-only browser cookie vault."""
+    """Process-memory cookie vault with optional SQLite persistence."""
 
     def __init__(self) -> None:
         self._cookies: httpx.Cookies | None = None
         self._count = 0
         self._lock = threading.Lock()
+        self._source_header: str | None = None  # 用于持久化
+        self._source_domain: str | None = None
 
     def import_chrome(self, domain: str = ".ozon.ru") -> int:
         try:
@@ -33,6 +36,8 @@ class CookieVault:
             raise RuntimeError("Chrome 中未找到匹配的 Ozon Cookie")
         with self._lock:
             self._cookies, self._count = vault, count
+            self._source_header = None
+            self._source_domain = None
         return count
 
     def load_from_browser(self, raw: Iterable[dict], default_domain: str = ".ozon.kz") -> int:
@@ -53,6 +58,8 @@ class CookieVault:
             raise ValueError("浏览器未提供任何 Cookie")
         with self._lock:
             self._cookies, self._count = vault, count
+            self._source_header = None
+            self._source_domain = default_domain
         return count
 
     def load_from_header(self, header_value: str, domain: str = ".ozon.kz") -> int:
@@ -77,6 +84,33 @@ class CookieVault:
             raise ValueError("Cookie 字符串为空或格式错误")
         with self._lock:
             self._cookies, self._count = vault, count
+            self._source_header = header_value
+            self._source_domain = domain
+        return count
+
+    def load_from_db(self, db) -> int:
+        """从数据库恢复最近一次上传的 Cookie Header。"""
+        try:
+            row = db.fetch_latest_cookie_header()
+        except Exception:
+            return 0
+        if not row:
+            return 0
+        header_value, domain = row
+        try:
+            return self.load_from_header(header_value, domain)
+        except ValueError:
+            return 0
+
+    def save_to_db(self, db) -> int:
+        """把当前 Cookie 落盘，方便下次自动加载。"""
+        with self._lock:
+            header = self._source_header
+            domain = self._source_domain or ".ozon.kz"
+            count = self._count
+        if not header:
+            return 0
+        db.upsert_cookie_header(header, domain)
         return count
 
     def snapshot(self) -> httpx.Cookies:
@@ -91,6 +125,8 @@ class CookieVault:
     def clear(self) -> None:
         with self._lock:
             self._cookies, self._count = None, 0
+            self._source_header = None
+            self._source_domain = None
 
     @property
     def ready(self) -> bool:
