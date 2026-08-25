@@ -21,28 +21,28 @@ async def test_search_endpoint_returns_items(tmp_path):
 
         def factory(_cookies):
             requests = [{
-                "nextPage": "/search/?page=2",
-                "widgetStates": {
-                    "tileGridDesktop-test": json.dumps({
-                        "items": [{
-                            "id": 1, "sku": 1,
-                            "mainState": [
-                                {"type": "priceV2", "priceV2": {"price": [
-                                    {"textStyle": "PRICE", "text": "100"},
-                                    {"textStyle": "ORIGINAL_PRICE", "text": "200"}],
-                                    "discount": "-50%"}},
-                                {"type": "textDS", "textDS": {"text": "示例商品", "id": "name"}},
-                                {"type": "labelListV2", "labelListV2": {"items": [
-                                    {"type": "text", "text": {"text": "4.8"}},
-                                    {"type": "text", "text": {"text": "10"}},
-                                ]}},
-                            ],
-                            "tileImage": {"items": [{"image": {"link": "https://img"}}]},
-                            "action": {"link": "/product/test-1/"},
-                        }]
-                    }),
-                },
-            }, {"nextPage": None, "widgetStates": {}}]
+                        "nextPage": "/search/?page=2",
+                        "widgetStates": {
+                            "tileGridDesktop-test": json.dumps({
+                                "items": [{
+                                    "id": 1, "sku": 1,
+                                    "mainState": [
+                                        {"priceV2": {"price": [
+                                            {"textStyle": "PRICE", "text": "100"},
+                                            {"textStyle": "ORIGINAL_PRICE", "text": "200"}],
+                                            "discount": "-50%"}},
+                                        {"textDS": {"text": "示例商品"}, "id": "name"},
+                                        {"labelListV2": {"items": [
+                                            {"text": {"text": "4.8"}},
+                                            {"text": {"text": "10"}},
+                                        ]}},
+                                    ],
+                                    "tileImage": {"items": [{"image": {"link": "https://img"}}]},
+                                    "action": {"link": "/product/test-1/"},
+                                }]
+                            }),
+                        },
+                    }, {"nextPage": None, "widgetStates": {}}]
 
             call = {"i": 0}
 

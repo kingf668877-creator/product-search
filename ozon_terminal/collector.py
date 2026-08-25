@@ -176,6 +176,12 @@ def _flatten_item(item: Any) -> dict[str, Any]:
         if not isinstance(state, dict):
             continue
         kind = state.get("type")
+        if not kind:
+            # 兼容没有 type 字段：取第一个以已知 kind 命名的子键
+            for k in state.keys():
+                if k in ("priceV2", "textDS", "labelListV2", "atom"):
+                    kind = k
+                    break
         body = state.get(kind) if kind else None
         if not isinstance(body, dict):
             continue

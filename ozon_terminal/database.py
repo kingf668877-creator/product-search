@@ -47,6 +47,12 @@ class Database:
                     UNIQUE(job_id, page_no, ordinal)
                 );
                 CREATE INDEX IF NOT EXISTS idx_records_job ON records(job_id, id);
+                CREATE TABLE IF NOT EXISTS saved_cookies (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    header TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             self._conn.execute(
@@ -100,3 +106,21 @@ class Database:
         self.get_job(job_id)
         rows = self._conn.execute("SELECT data_json FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def upsert_cookie_header(self, header: str, domain: str) -> None:
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO saved_cookies(id, header, domain, updated_at) VALUES(1,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET header=excluded.header, domain=excluded.domain, updated_at=excluded.updated_at",
+                (header, domain, utcnow()),
+            )
+
+    def clear_cookie_header(self) -> None:
+        with self._lock, self._conn:
+            self._conn.execute("DELETE FROM saved_cookies WHERE id=1")
+
+    def fetch_latest_cookie_header(self) -> tuple[str, str] | None:
+        row = self._conn.execute("SELECT header, domain FROM saved_cookies WHERE id=1").fetchone()
+        if not row:
+            return None
+        return row[0], row[1]
