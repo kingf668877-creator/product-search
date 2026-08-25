@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Ozon 选品库 · 商品搜索</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/picks.css">
+</head>
+<body class="picks-body">
+  <header class="picks-header">
+    <div class="brand">
+      <span class="eyebrow">PRODUCT DISCOVERY</span>
+      <h1>OZON<span>//</span>选品库</h1>
+    </div>
+    <nav class="tabs">
+      <a href="/">数据终端</a>
+      <a class="active" href="/picks.html">选品库</a>
+    </nav>
+    <div class="health">
+      <span id="cookieDot" class="dot"></span>
+      <span id="cookieText">检查中…</span>
+      <button id="pasteBtn" class="ghost">粘贴 Cookie</button>
+    </div>
+  </header>
+  <main class="picks-main">
+    <aside class="picks-rail">
+      <div id="statusBar" class="status-bar loading">正在检查本地服务状态…</div>
+      <h2>检索</h2>
+      <label>关键词
+        <input id="kw" type="text" placeholder="例如：连衣裙、ботинки、платье">
+      </label>
+      <label>类目
+        <select id="category">
+          <option value="">全站</option>
+          <option value="Женская одежда">女装</option>
+          <option value="Мужская одежда">男装</option>
+          <option value="Детская одежда">童装</option>
+          <option value="Обувь">鞋靴</option>
+          <option value="Аксессуары">配饰</option>
+          <option value="Бытовая техника">家电</option>
+          <option value="Электроника">数码</option>
+          <option value="Дом и сад">家居园艺</option>
+        </select>
+      </label>
+      <label>排序
+        <select id="sort">
+          <option value="">综合</option>
+          <option value="score">相关度</option>
+          <option value="price">价格从低到高</option>
+          <option value="price_desc">价格从高到低</option>
+          <option value="rating">评分</option>
+          <option value="reviews">评价数</option>
+        </select>
+      </label>
+      <div class="range">
+        <label>最低价<input id="minPrice" type="number" min="0" placeholder="0"></label>
+        <label>最高价<input id="maxPrice" type="number" min="0" placeholder="不限"></label>
+        <label>最低评分<input id="minRating" type="number" min="0" max="5" step="0.1" placeholder="0"></label>
+      </div>
+      <label>每页数量
+        <input id="pageSize" type="number" min="8" max="60" value="24">
+      </label>
+      <button id="searchBtn" class="primary">搜索商品</button>
+      <p class="hint" id="hint">提示：首次使用请先在“数据终端”粘贴 Ozon Cookie Header 并返回。</p>
+    </aside>
+    <section class="picks-results">
+      <div class="results-head">
+        <div>
+          <span class="eyebrow">RESULTS</span>
+          <h2 id="resultTitle">输入关键词开始检索</h2>
+        </div>
+        <div class="result-meta" id="resultMeta"></div>
+      </div>
+      <div id="grid" class="grid empty">暂无结果</div>
+      <div class="pager">
+        <button id="prevBtn" class="ghost">上一页</button>
+        <span id="pageInfo">— / —</span>
+        <button id="nextBtn" class="ghost">下一页</button>
+      </div>
+    </section>
+  </main>
+  <dialog id="cookieDialog">
+    <form method="dialog">
+      <h3>粘贴 Ozon Cookie Header</h3>
+      <p>在已登录 Ozon 的标签页按 F12 → Network → 任意请求 → 复制 <b>Cookie</b> 请求头整段。</p>
+      <textarea id="cookieTextarea" rows="6" placeholder="x-hng=...; _nano_fp=...; ..."></textarea>
+      <menu>
+        <button value="cancel" class="ghost">取消</button>
+        <button value="ok" class="primary" id="uploadBtn">上传</button>
+      </menu>
+    </form>
+  </dialog>
+  <script src="/picks.js"></script>
+</body>
+</html>
