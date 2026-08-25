@@ -13,6 +13,11 @@
 
 .picks-main { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 100px); }
 .picks-rail { border-right: 1px solid var(--line); padding: 26px 22px; background: #111619; }
+.status-bar { margin-bottom: 16px; border-left: 3px solid var(--line); padding: 12px 14px; font-size: 11px; line-height: 1.6; background: #0d1214; color: var(--paper); }
+.status-bar.ready { border-color: var(--acid); }
+.status-bar.warning { border-color: var(--orange); }
+.status-bar.error { border-color: #d56c6c; }
+.status-bar.loading { border-color: #57b4cb; }
 .picks-rail h2 { font-family: Oswald, sans-serif; font-size: 14px; color: var(--acid); letter-spacing: 0.5px; text-transform: uppercase; margin: 0 0 14px; }
 .picks-rail label { display: grid; gap: 6px; font-size: 10px; color: var(--muted); margin-bottom: 14px; }
 .picks-rail input, .picks-rail select { background: #0c1012; border: 1px solid var(--line); color: var(--paper); padding: 10px; font: 12px 'IBM Plex Mono', monospace; }
@@ -35,11 +40,11 @@
 .card .img { aspect-ratio: 1; background: #0d1214 center/cover no-repeat; border-bottom: 1px solid var(--line); }
 .card .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .card .title { font-size: 12px; line-height: 1.4; color: var(--paper); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.card .row { display: flex; align-items: baseline; gap: 6px; }
+.card .row { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .card .price { color: var(--acid); font-weight: 600; font-size: 14px; }
 .card .strike { color: var(--muted); text-decoration: line-through; font-size: 11px; }
 .card .discount { color: var(--orange); font-size: 11px; }
-.card .meta { color: var(--muted); font-size: 10px; display: flex; justify-content: space-between; }
+.card .meta { color: var(--muted); font-size: 10px; display: flex; justify-content: space-between; gap: 8px; }
 .card .rating { color: var(--paper); }
 .card .stock { color: var(--orange); }
 
