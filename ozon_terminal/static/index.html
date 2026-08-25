@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OZON // 数据采集终端</title><link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header><div><span class="eyebrow">LOCAL ACQUISITION NODE</span><h1>OZON<span>//</span>数据终端</h1></div><div id="clock" class="clock"></div></header>
+  <main>
+    <section class="rail">
+      <div class="status-block"><span class="label">SESSION LINK</span><div class="signal"><i id="cookieDot"></i><strong id="cookieText">未连接</strong></div><p>Cookie 仅驻留当前进程内存，不进入数据库、文件或日志。</p><button id="cookieBtn">从浏览器导入 Cookie</button><button id="clearBtn" class="ghost">清除内存凭据</button><details class="paste-cookie" open><summary>粘贴完整 Cookie Header（推荐）</summary><p class="hint">在已登录的 Ozon 标签页按 <b>F12</b> → Network → 选中任意请求 → 复制 <b>Cookie</b> 请求头整段粘贴到下面。</p><textarea id="cookiePaste" rows="6" placeholder="x-hng=...; _nano_fp=...; xcid=...; ..."></textarea><button id="pasteBtn" class="ghost">上传 Cookie Header</button></details></div>
+      <div class="metric"><span>任务总数</span><b id="jobCount">00</b></div><div class="metric"><span>采集记录</span><b id="itemCount">000000</b></div>
+      <div class="legend"><span><i class="run"></i>运行</span><span><i class="hold"></i>暂停</span><span><i class="done"></i>完成</span></div>
+    </section>
+    <section class="workspace">
+      <div class="section-head"><div><span class="index">01</span><h2>建立采集通道</h2></div><span class="line-code">SEQ / NEXTPAGE / COMMIT</span></div>
+      <form id="jobForm">
+        <label class="wide">OZON HTTPS ENDPOINT<input id="endpoint" type="url" required placeholder="https://www.ozon.ru/api/..." autocomplete="off"></label>
+        <label>METHOD<select id="method"><option>POST</option><option>GET</option></select></label>
+        <label class="wide">REQUEST JSON<textarea id="request" rows="5" spellcheck="false">{}</textarea></label>
+        <button class="launch">启动顺序采集 <span>→</span></button>
+      </form>
+      <div class="section-head jobs-head"><div><span class="index">02</span><h2>作业队列</h2></div><button id="refresh" class="mini">刷新信号</button></div>
+      <div id="jobs" class="jobs"><div class="empty">等待作业输入<span>NO ACTIVE TELEMETRY</span></div></div>
+      <div class="section-head"><div><span class="index">03</span><h2>关键词搜索</h2></div><span class="line-code">INPUT / PREVIEW / EXPORT</span></div>
+      <form id="searchForm" class="search-form">
+        <label class="wide">关键词<input id="kw" type="text" required maxlength="120" placeholder="例如：连衣裙、ботинки、платье" autocomplete="off"></label>
+        <label>目标数量<input id="target" type="number" min="1" max="2000" value="2000"></label>
+        <label>预览条数<input id="preview" type="number" min="1" max="500" value="120"></label>
+        <button class="launch">立即搜索 <span>→</span></button>
+      </form>
+      <div id="searchSummary" class="search-summary hidden"></div>
+      <div id="results" class="results hidden"></div>
+    </section>
+  </main>
+  <div id="toast"></div>
+<script src="/app.js"></script>
+</body></html>
