@@ -20,6 +20,17 @@ OZON_ENTRYPOINT = f"{OZON_BASE}/api/entrypoint-api.bx/page/json/v2"
 OZON_HOST_KZ = "ozon.kz"
 
 
+def _decode_json_response(response: httpx.Response) -> Any:
+    content_type = (response.headers.get("content-type") or "").lower()
+    if "application/json" in content_type and "charset=" not in content_type:
+        response.encoding = "utf-8"
+    try:
+        return response.json()
+    except json.JSONDecodeError:
+        text = response.content.decode("utf-8", errors="replace")
+        return json.loads(text)
+
+
 def extract_items(payload: Any) -> list[Any]:
     if isinstance(payload, list):
         return payload
@@ -124,7 +135,7 @@ class JobRunner:
                     url, request = next_request(endpoint, method, body, token)
                     response = await client.request(method, url, params=request if method == "GET" else None, json=request if method != "GET" else None)
                     response.raise_for_status()
-                    payload = response.json()
+                    payload = _decode_json_response(response)
                     page_no += 1
                     token = extract_next_page(payload)
                     self.db.save_page(job_id, page_no, extract_items(payload), token)
@@ -232,6 +243,7 @@ async def search_one_keyword(
     detail: bool = False,
     client_factory: Callable | None = None,
     page_fetcher: Callable | None = None,
+    max_pages: int | None = None,
 ) -> dict[str, Any]:
     """一次性顺序翻页搜索一个关键词，返回商品预览。"""
     if not keyword or not keyword.strip():
@@ -259,7 +271,7 @@ async def search_one_keyword(
                 if sku and sku not in unique_items:
                     unique_items[sku] = flat
             next_page = extract_next_page(payload)
-            if not next_page or len(unique_items) >= target:
+            if not next_page or len(unique_items) >= target or (max_pages is not None and pages >= max_pages):
                 break
             if isinstance(next_page, str) and next_page.startswith("/"):
                 params = {"url": next_page}
@@ -289,7 +301,7 @@ async def search_one_keyword(
             if response.status_code in {403, 429}:
                 raise RuntimeError(f"Ozon 返回 {response.status_code}，可能触发风控，请降低频率或暂停采集")
             response.raise_for_status()
-            payload = response.json()
+            payload = _decode_json_response(response)
             pages += 1
             tile_items = _extract_tile_grid(payload)
             for raw in tile_items:
@@ -298,7 +310,7 @@ async def search_one_keyword(
                 if sku and sku not in unique_items:
                     unique_items[sku] = flat
             next_page = extract_next_page(payload)
-            if not next_page or len(unique_items) >= target:
+            if not next_page or len(unique_items) >= target or (max_pages is not None and pages >= max_pages):
                 break
             if isinstance(next_page, str) and next_page.startswith("/"):
                 params = {"url": next_page}

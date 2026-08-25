@@ -40,6 +40,7 @@ class KeywordRequest(BaseModel):
     keyword: str = Field(min_length=1, max_length=120)
     target: int = Field(default=2000, ge=1, le=2000)
     preview: int = Field(default=120, ge=1, le=500)
+    pages: int | None = Field(default=None, ge=1, le=100)
     detail: bool = False
     fetcher: Literal["server", "browser"] = "server"
 
@@ -190,6 +191,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                 spec.detail,
                 runner._client_factory,
                 page_fetcher,
+                max_pages=spec.pages,
             )
         except RuntimeError as exc:
             raise HTTPException(400, str(exc)) from exc

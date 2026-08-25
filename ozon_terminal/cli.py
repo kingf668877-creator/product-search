@@ -18,7 +18,7 @@ def database(path: Path | None) -> Database:
 
 
 @app.command()
-def serve(host: str = "127.0.0.1", port: int = 9001, reload: bool = False):
+def serve(host: str = "0.0.0.0", port: int = 9001, reload: bool = False):
     """启动本机 Web 控制台。"""
     import uvicorn
     uvicorn.run("ozon_terminal.api:app", host=host, port=port, reload=reload)

@@ -1,0 +1,2 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Oswald:wght@400;500;600&display=swap');
+:root{--ink:#101516;--paper:#f2f4ee;--muted:#899393;--line:#303a3b;--acid:#d7f75b;--orange:#f3a15b}*{box-sizing:border-box}body{margin:0;font-family:'IBM Plex Mono',monospace}button,input,textarea,select{font:inherit;cursor:pointer}button:disabled{cursor:not-allowed}

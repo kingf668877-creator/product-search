@@ -1,6 +1,6 @@
 // Ozon 选品库：批量关键词搜索与按关键词分组展示。
 const $ = (s) => document.querySelector(s);
-const API_BASE = window.location.origin;
+const API_BASE = 'https://yidong.dianleida.net:21997';
 const state = { groups: [], cookieReady: false, cookieCount: 0, running: false };
 
 function apiUrl(path) { return `${API_BASE}${path}`; }

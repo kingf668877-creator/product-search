@@ -3,7 +3,7 @@ import json
 import pytest
 
 from ozon_terminal.api import create_app
-from ozon_terminal.collector import search_one_keyword
+from ozon_terminal.collector import _decode_json_response, search_one_keyword
 
 
 class FakeCookie:
@@ -66,6 +66,29 @@ async def test_search_endpoint_returns_items(tmp_path):
         assert body["items"][0]["price"] == "100"
         assert body["items"][0]["rating"] == "4.8"
         assert body["items"][0]["reviews"] == "10"
+
+
+@pytest.mark.asyncio
+async def test_search_endpoint_respects_page_limit(tmp_path):
+    app = create_app(tmp_path / "search_pages.db")
+    async with app.router.lifespan_context(app):
+        app.state.cookies.load([FakeCookie()])
+        calls = {"count": 0}
+
+        def factory(_cookies):
+            def handler(request):
+                calls["count"] += 1
+                return httpx.Response(200, json={"nextPage": "/search/?page=2", "widgetStates": {}})
+
+            return httpx.AsyncClient(transport=httpx.MockTransport(handler), cookies=_cookies)
+
+        app.state.runner._client_factory = factory
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post("/api/search", json={"keyword": "示例", "target": 2000, "preview": 10, "pages": 1})
+        assert response.status_code == 200
+        assert response.json()["pages"] == 1
+        assert calls["count"] == 1
 
 
 @pytest.mark.asyncio

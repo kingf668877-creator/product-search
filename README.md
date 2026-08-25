@@ -14,12 +14,16 @@
 # 安装依赖
 python -m pip install -e ".[test]"
 
-# 启动本地服务（默认端口 9001）
-python -m ozon_terminal serve --host 127.0.0.1 --port 9001
+# 启动本地服务（默认监听 0.0.0.0:9001）
+python -m ozon_terminal serve --host 0.0.0.0 --port 9001
 
-# 打开浏览器
+# 本机浏览器访问
 # 1) 数据终端 http://127.0.0.1:9001/
 # 2) 选品库   http://127.0.0.1:9001/picks.html
+
+# 如已配置反向代理，也可访问映射域名
+# 1) 数据终端 https://yidong.dianleida.net:21997/
+# 2) 选品库   https://yidong.dianleida.net:21997/picks.html
 ```
 
 ## 字段说明
@@ -41,7 +45,7 @@ python -m ozon_terminal serve --host 127.0.0.1 --port 9001
 
 ## 安全说明
 
-- 默认端口 9001，避免与常见服务冲突
+- 默认端口 9001，默认监听 `0.0.0.0`，方便被内网或反向代理访问
 - Cookie 会上传到内存中，且在收到 `POST /api/cookies/header` 或 `POST /api/cookies/import` 时自动写入本地 SQLite，方便服务重启后自动恢复
 - 不会随 CSV/JSON 导出；服务退出或调用 `DELETE /api/cookies` 时会同时清除内存与数据库
 - Ozon 的会话 token 有 TTL，过期后需重新粘贴 Cookie Header
