@@ -55,6 +55,7 @@ class KeywordRequest(BaseModel):
     price_min: int | None = Field(default=None, ge=0, le=10_000_000)
     price_max: int | None = Field(default=None, ge=0, le=10_000_000)
     sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
+    with_categories: bool = True
 
     @field_validator("price_max")
     @classmethod
@@ -76,6 +77,7 @@ class DifyBatchRequest(BaseModel):
     price_min: int | None = Field(default=None, ge=0, le=10_000_000)
     price_max: int | None = Field(default=None, ge=0, le=10_000_000)
     sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
+    with_categories: bool = True
 
     @field_validator("price_max")
     @classmethod
@@ -266,6 +268,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                 price_min=spec.price_min,
                 price_max=spec.price_max,
                 sort=spec.sort,
+                with_categories=spec.with_categories,
             )
         except RuntimeError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -330,6 +333,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     price_min=spec.price_min,
                     price_max=spec.price_max,
                     sort=spec.sort,
+                    with_categories=spec.with_categories,
                 )
             except RuntimeError as exc:
                 raise HTTPException(400, f"{keyword}: {exc}") from exc
@@ -340,6 +344,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                 "unique": result["unique"],
                 "returned": result["returned"],
                 "items": result["items"],
+                "categories": result["categories"],
             })
         return {"count": len(results), "results": results}
 
@@ -379,6 +384,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "price_min": {"type": "integer", "minimum": 0, "maximum": 10000000, "description": "最低价格（₽）"},
                     "price_max": {"type": "integer", "minimum": 0, "maximum": 10000000, "description": "最高价格（₽），不能小于 price_min"},
                     "sort": {"type": "string", "enum": ["price", "price_desc", "relevance", "newest"], "description": "Ozon 排序方式"},
+                    "with_categories": {"type": "boolean", "default": True, "description": "是否在响应中返回该关键词命中的 Ozon 类目列表，便于二次调用锁定类目"},
                 },
             }
         dify_schemas = {
@@ -399,6 +405,15 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "images": {"type": "array", "items": {"type": "string"}},
                 },
             },
+            "DifyCategory": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "description": "Ozon 类目 ID"},
+                    "name": {"type": "string", "description": "Ozon 俄语/俄哈语原名"},
+                    "level": {"type": "integer", "nullable": True, "description": "层级：0=一级，1=二级…"},
+                    "url": {"type": "string", "description": "Ozon 类目页 URL"},
+                },
+            },
             "DifyKeywordResult": {
                 "type": "object",
                 "properties": {
@@ -408,6 +423,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "unique": {"type": "integer"},
                     "returned": {"type": "integer"},
                     "items": {"type": "array", "items": {"$ref": "#/components/schemas/DifySearchResultItem"}},
+                    "categories": {"type": "array", "items": {"$ref": "#/components/schemas/DifyCategory"}, "description": "该关键词命中的 Ozon 类目列表（最多 3 项）"},
                 },
             },
             "DifySearchResponse": {

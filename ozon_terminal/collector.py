@@ -212,6 +212,64 @@ def _extract_tile_grid(payload: Any) -> list[Any]:
     return []
 
 
+_CATEGORY_URL_TAIL = re.compile(r"-(\d+)/?$")
+
+
+def _extract_categories(payload: Any) -> list[dict[str, Any]]:
+    """从 Ozon 搜索页响应里抽取 filtersDesktop 的 categoryFilter.categories。"""
+    states = payload.get("widgetStates") if isinstance(payload, dict) else None
+    if not isinstance(states, dict):
+        return []
+    for key, raw in states.items():
+        if not key.startswith("filtersDesktop"):
+            continue
+        try:
+            widget = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        sections = widget.get("sections") if isinstance(widget, dict) else None
+        if not isinstance(sections, list):
+            continue
+        for section in sections:
+            filters = section.get("filters") if isinstance(section, dict) else None
+            if not isinstance(filters, list):
+                continue
+            for entry in filters:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("type") != "categoryFilter":
+                    continue
+                cat_filter = entry.get("categoryFilter")
+                if not isinstance(cat_filter, dict):
+                    continue
+                categories = cat_filter.get("categories")
+                if not isinstance(categories, list):
+                    continue
+                results: list[dict[str, Any]] = []
+                for cat in categories:
+                    if not isinstance(cat, dict):
+                        continue
+                    title = cat.get("title")
+                    url = cat.get("urlValue") or ""
+                    level = cat.get("level")
+                    cat_id = None
+                    match = _CATEGORY_URL_TAIL.search(url.split("?", 1)[0])
+                    if match:
+                        cat_id = match.group(1)
+                    if not cat_id and cat.get("testInfo", {}).get("automatizationId", "").startswith("filter-category-item-"):
+                        cat_id = cat["testInfo"]["automatizationId"].rsplit("-", 1)[-1]
+                    if not title or not cat_id:
+                        continue
+                    results.append({
+                        "id": str(cat_id),
+                        "name": str(title),
+                        "level": int(level) if isinstance(level, (int, float)) else None,
+                        "url": url,
+                    })
+                return results
+    return []
+
+
 def _flatten_item(item: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"id": item.get("id") or item.get("sku")}
     out["title"] = None
@@ -308,7 +366,7 @@ async def _search_term(
     price_min: int | None = None,
     price_max: int | None = None,
     sort: str | None = None,
-) -> tuple[int, dict[str, dict[str, Any]]]:
+) -> tuple[int, dict[str, dict[str, Any]], list[dict[str, Any]]]:
     base_query: list[tuple[str, str]] = [
         ("deny_category_prediction", "true"),
         ("from_global", "true"),
@@ -324,6 +382,7 @@ async def _search_term(
         base_query.append(("sort", sort))
     params: dict[str, Any] = {"url": f"/search/?{urlencode(base_query)}"}
     unique_items: dict[str, dict[str, Any]] = {}
+    categories: list[dict[str, Any]] = []
     pages = 0
 
     async def consume(payload: Any) -> str | None:
@@ -334,6 +393,8 @@ async def _search_term(
             sku = str(flat.get("id") or "")
             if sku and sku not in unique_items:
                 unique_items[sku] = flat
+        if not categories:
+            categories.extend(_extract_categories(payload))
         return extract_next_page(payload)
 
     while True:
@@ -363,7 +424,7 @@ async def _search_term(
             query["page"] = str(pages + 1)
             params = {"url": urlunparse(parsed._replace(query=urlencode(query)))}
         await asyncio.sleep(0)
-    return pages, unique_items
+    return pages, unique_items, categories
 
 
 async def search_one_keyword(
@@ -379,6 +440,7 @@ async def search_one_keyword(
     price_min: int | None = None,
     price_max: int | None = None,
     sort: str | None = None,
+    with_categories: bool = True,
 ) -> dict[str, Any]:
     """按原关键词及俄语扩展词搜索，合并去重并按相关性排序。"""
     if not keyword or not keyword.strip():
@@ -414,7 +476,7 @@ async def search_one_keyword(
                 for term in terms
             ]
     merged: dict[str, dict[str, Any]] = {}
-    for term, (_, items) in zip(terms, results):
+    for term, (_, items, _) in zip(terms, results):
         for sku, item in items.items():
             item.setdefault("_matched_terms", []).append(term)
             merged.setdefault(sku, item)
@@ -422,13 +484,24 @@ async def search_one_keyword(
     for item in ordered:
         item.pop("_matched_terms", None)
     items = ordered[:max(1, preview)]
+    categories: list[dict[str, Any]] = []
+    if with_categories:
+        seen_ids: set[str] = set()
+        for _, _, cats in results:
+            for cat in cats:
+                key = cat.get("id")
+                if not key or key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                categories.append(cat)
     return {
         "keyword": keyword,
         "requested_pages": requested_pages,
-        "pages": max((page_count for page_count, _ in results), default=0),
+        "pages": max((page_count for page_count, _, _ in results), default=0),
         "unique": len(merged),
         "returned": len(items),
         "items": items,
+        "categories": categories,
     }
 
 

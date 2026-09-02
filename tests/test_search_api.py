@@ -135,13 +135,43 @@ async def test_search_adds_sequential_page_when_next_page_is_missing():
         seen_urls.append(url)
         return {"widgetStates": {}}
 
-    pages, items = await _search_term("示例", None, target=100, page_fetcher=fetcher, max_pages=3)
+    pages, items, categories = await _search_term("示例", None, target=100, page_fetcher=fetcher, max_pages=3)
 
     assert pages == 3
     assert items == {}
+    assert categories == []
     assert "page=" not in seen_urls[0]
     assert "page=2" in seen_urls[1]
     assert "page=3" in seen_urls[2]
+
+
+@pytest.mark.asyncio
+async def test_search_extracts_categories_from_filters_widget():
+    filters_widget = json.dumps({
+            "sections": [
+                {"filters": [{
+                    "type": "categoryFilter",
+                    "categoryFilter": {
+                        "title": "Категория",
+                        "categories": [
+                            {"title": "Одежда", "level": 0, "urlValue": "/category/odezhda-obuv-i-aksessuary-7500/?__rr=1&deny_category_prediction=true&from_global=true&text=dress", "testInfo": {"automatizationId": "filter-category-item-7500"}},
+                            {"title": "Ароматы для дома", "level": 0, "urlValue": "/category/aromaty-dlya-doma-30931/", "testInfo": {"automatizationId": "filter-category-item-30931"}},
+                        ],
+                    },
+                }]}
+            ]
+        })
+
+    async def fetcher(_url):
+        return {"widgetStates": {"filtersDesktop-1": filters_widget, "tileGridDesktop-1": json.dumps({"items": []})}}
+
+    pages, items, categories = await _search_term("dress", None, target=10, page_fetcher=fetcher, max_pages=1)
+    assert pages == 1
+    assert items == {}
+    assert categories == [
+        {"id": "7500", "name": "Одежда", "level": 0, "url": "/category/odezhda-obuv-i-aksessuary-7500/?__rr=1&deny_category_prediction=true&from_global=true&text=dress"},
+        {"id": "30931", "name": "Ароматы для дома", "level": 0, "url": "/category/aromaty-dlya-doma-30931/"},
+    ]
 
 
 @pytest.mark.asyncio
