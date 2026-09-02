@@ -56,6 +56,7 @@ class KeywordRequest(BaseModel):
     price_max: int | None = Field(default=None, ge=0, le=10_000_000)
     sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
     with_categories: bool = True
+    deep_categories: bool = False
 
     @field_validator("price_max")
     @classmethod
@@ -78,6 +79,7 @@ class DifyBatchRequest(BaseModel):
     price_max: int | None = Field(default=None, ge=0, le=10_000_000)
     sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
     with_categories: bool = True
+    deep_categories: bool = False
 
     @field_validator("price_max")
     @classmethod
@@ -269,6 +271,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                 price_max=spec.price_max,
                 sort=spec.sort,
                 with_categories=spec.with_categories,
+                deep_categories=spec.deep_categories,
             )
         except RuntimeError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -334,6 +337,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     price_max=spec.price_max,
                     sort=spec.sort,
                     with_categories=spec.with_categories,
+                    deep_categories=spec.deep_categories,
                 )
             except RuntimeError as exc:
                 raise HTTPException(400, f"{keyword}: {exc}") from exc
@@ -385,6 +389,7 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "price_max": {"type": "integer", "minimum": 0, "maximum": 10000000, "description": "最高价格（₽），不能小于 price_min"},
                     "sort": {"type": "string", "enum": ["price", "price_desc", "relevance", "newest"], "description": "Ozon 排序方式"},
                     "with_categories": {"type": "boolean", "default": True, "description": "是否在响应中返回该关键词命中的 Ozon 类目列表，便于二次调用锁定类目"},
+                    "deep_categories": {"type": "boolean", "default": False, "description": "是否在已开启 with_categories 的前提下，再请求每个一级类目页以填充 subcategories 子类目。开启后接口返回时间会按命中的一级类目数 × 一次额外请求 线性增加。"},
                 },
             }
         dify_schemas = {
@@ -412,6 +417,11 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "name": {"type": "string", "description": "Ozon 俄语/俄哈语原名"},
                     "level": {"type": "integer", "nullable": True, "description": "层级：0=一级，1=二级…"},
                     "url": {"type": "string", "description": "Ozon 类目页 URL"},
+                    "subcategories": {
+                        "type": "array",
+                        "items": {"$ref": "#/components/schemas/DifyCategory"},
+                        "description": "子类目（仅当请求 deep_categories=true 时填充）",
+                    },
                 },
             },
             "DifyKeywordResult": {

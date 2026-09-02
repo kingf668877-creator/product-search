@@ -215,7 +215,14 @@ def _extract_tile_grid(payload: Any) -> list[Any]:
 _CATEGORY_URL_TAIL = re.compile(r"-(\d+)/?$")
 
 
-def _extract_categories(payload: Any) -> list[dict[str, Any]]:
+def _parse_category_url(url: str) -> str | None:
+    if not url:
+        return None
+    match = _CATEGORY_URL_TAIL.search(url.split("?", 1)[0])
+    return match.group(1) if match else None
+
+
+def _extract_top_categories(payload: Any) -> list[dict[str, Any]]:
     """从 Ozon 搜索页响应里抽取 filtersDesktop 的 categoryFilter.categories。"""
     states = payload.get("widgetStates") if isinstance(payload, dict) else None
     if not isinstance(states, dict):
@@ -252,10 +259,7 @@ def _extract_categories(payload: Any) -> list[dict[str, Any]]:
                     title = cat.get("title")
                     url = cat.get("urlValue") or ""
                     level = cat.get("level")
-                    cat_id = None
-                    match = _CATEGORY_URL_TAIL.search(url.split("?", 1)[0])
-                    if match:
-                        cat_id = match.group(1)
+                    cat_id = _parse_category_url(url)
                     if not cat_id and cat.get("testInfo", {}).get("automatizationId", "").startswith("filter-category-item-"):
                         cat_id = cat["testInfo"]["automatizationId"].rsplit("-", 1)[-1]
                     if not title or not cat_id:
@@ -267,6 +271,43 @@ def _extract_categories(payload: Any) -> list[dict[str, Any]]:
                         "url": url,
                     })
                 return results
+    return []
+
+
+def _extract_subcategories(payload: Any, parent_id: str) -> list[dict[str, Any]]:
+    """从 Ozon 类目页响应里抽取 horizontalCategoryMenu 的 items，作为二级类目。"""
+    states = payload.get("widgetStates") if isinstance(payload, dict) else None
+    if not isinstance(states, dict):
+        return []
+    for key, raw in states.items():
+        if not key.startswith("horizontalCategoryMenu"):
+            continue
+        try:
+            widget = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        items = widget.get("items") if isinstance(widget, dict) else None
+        if not isinstance(items, list):
+            continue
+        results: list[dict[str, Any]] = []
+        for entry in items:
+            if not isinstance(entry, dict):
+                continue
+            title = entry.get("title")
+            url = entry.get("url") or ""
+            if not title:
+                continue
+            child_id = _parse_category_url(url)
+            if not child_id:
+                continue
+            results.append({
+                "id": str(child_id),
+                "name": str(title),
+                "level": 1,
+                "url": url,
+                "parent_id": str(parent_id),
+            })
+        return results
     return []
 
 
@@ -366,6 +407,7 @@ async def _search_term(
     price_min: int | None = None,
     price_max: int | None = None,
     sort: str | None = None,
+    deep_categories: bool = False,
 ) -> tuple[int, dict[str, dict[str, Any]], list[dict[str, Any]]]:
     base_query: list[tuple[str, str]] = [
         ("deny_category_prediction", "true"),
@@ -394,7 +436,7 @@ async def _search_term(
             if sku and sku not in unique_items:
                 unique_items[sku] = flat
         if not categories:
-            categories.extend(_extract_categories(payload))
+            categories.extend(_extract_top_categories(payload))
         return extract_next_page(payload)
 
     while True:
@@ -424,6 +466,34 @@ async def _search_term(
             query["page"] = str(pages + 1)
             params = {"url": urlunparse(parsed._replace(query=urlencode(query)))}
         await asyncio.sleep(0)
+
+    if deep_categories and categories and page_fetcher is None and client is not None:
+        for cat in categories:
+            slug_url = cat.get("url") or ""
+            target_url = ""
+            if isinstance(slug_url, str) and slug_url.startswith("/category/"):
+                cleaned = slug_url.split("?", 1)[0]
+                parts = cleaned.split("/")
+                if len(parts) >= 3 and parts[1] == "category" and parts[2]:
+                    target_url = cleaned
+            if not target_url:
+                target_url = f"/category/{cat['id']}/"
+            try:
+                response = await client.get(OZON_ENTRYPOINT, params={"url": target_url})
+            except httpx.HTTPError:
+                continue
+            if response.status_code in {403, 429}:
+                continue
+            try:
+                response.raise_for_status()
+                cat_payload = _decode_json_response(response)
+            except Exception:
+                continue
+            subs = _extract_subcategories(cat_payload, cat["id"])
+            if subs:
+                cat["subcategories"] = subs
+            await asyncio.sleep(0)
+
     return pages, unique_items, categories
 
 
@@ -441,6 +511,7 @@ async def search_one_keyword(
     price_max: int | None = None,
     sort: str | None = None,
     with_categories: bool = True,
+    deep_categories: bool = False,
 ) -> dict[str, Any]:
     """按原关键词及俄语扩展词搜索，合并去重并按相关性排序。"""
     if not keyword or not keyword.strip():
@@ -452,6 +523,7 @@ async def search_one_keyword(
             await _search_term(
                 term, None, target, page_fetcher=page_fetcher, max_pages=requested_pages,
                 category=category, price_min=price_min, price_max=price_max, sort=sort,
+                deep_categories=deep_categories,
             )
             for term in terms
         ]
@@ -472,6 +544,7 @@ async def search_one_keyword(
                 await _search_term(
                     term, cookies, target, client=client, max_pages=requested_pages,
                     category=category, price_min=price_min, price_max=price_max, sort=sort,
+                    deep_categories=deep_categories,
                 )
                 for term in terms
             ]

@@ -146,7 +146,7 @@ async def test_search_adds_sequential_page_when_next_page_is_missing():
 
 
 @pytest.mark.asyncio
-async def test_search_extracts_categories_from_filters_widget():
+async def test_search_extracts_top_categories_from_filters_widget():
     filters_widget = json.dumps({
             "sections": [
                 {"filters": [{
@@ -172,6 +172,140 @@ async def test_search_extracts_categories_from_filters_widget():
         {"id": "7500", "name": "Одежда", "level": 0, "url": "/category/odezhda-obuv-i-aksessuary-7500/?__rr=1&deny_category_prediction=true&from_global=true&text=dress"},
         {"id": "30931", "name": "Ароматы для дома", "level": 0, "url": "/category/aromaty-dlya-doma-30931/"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_search_fetches_subcategories_when_deep_categories_enabled():
+    filters_widget = json.dumps({
+        "sections": [{"filters": [{
+            "type": "categoryFilter",
+            "categoryFilter": {
+                "title": "Категория",
+                "categories": [
+                    {"title": "Одежда", "level": 0, "urlValue": "/category/odezhda-obuv-i-aksessuary-7500/", "testInfo": {"automatizationId": "filter-category-item-7500"}},
+                ],
+            },
+        }]}]
+    })
+    sub_menu = json.dumps({
+        "items": [
+            {"title": "Женская одежда", "url": "/category/zhenskaya-odezhda-7501/"},
+            {"title": "Мужская одежда", "url": "/category/muzhskaya-odezhda-7502/"},
+        ]
+    })
+
+    class _FakeResp:
+        def __init__(self, status_code, payload):
+            self.status_code = status_code
+            self._payload = payload
+            self.content = json.dumps(payload).encode("utf-8")
+            self.headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise httpx.HTTPStatusError("err", request=None, response=httpx.Response(self.status_code))
+
+    class _FakeAsyncClient:
+        def __init__(self):
+            self.calls = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, _url, params=None):
+            url = params.get("url", "") if params else ""
+            self.calls.append(url)
+            if url.startswith("/search/"):
+                return _FakeResp(200, {"widgetStates": {
+                    "filtersDesktop-1": filters_widget,
+                    "tileGridDesktop-1": json.dumps({"items": []}),
+                }})
+            if url.startswith("/category/"):
+                return _FakeResp(200, {"widgetStates": {
+                    "horizontalCategoryMenu-1-default-1": sub_menu,
+                }})
+            return _FakeResp(404, {})
+
+    client = _FakeAsyncClient()
+
+    async def _run():
+        async with client:
+            return await _search_term(
+                "dress",
+                None,
+                target=10,
+                client=client,
+                max_pages=1,
+                deep_categories=True,
+            )
+
+    pages, items, categories = await _run()
+
+    assert pages == 1
+    assert items == {}
+    assert len(categories) == 1
+    assert categories[0]["id"] == "7500"
+    assert categories[0]["subcategories"] == [
+        {"id": "7501", "name": "Женская одежда", "level": 1, "url": "/category/zhenskaya-odezhda-7501/", "parent_id": "7500"},
+        {"id": "7502", "name": "Мужская одежда", "level": 1, "url": "/category/muzhskaya-odezhda-7502/", "parent_id": "7500"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_deep_categories_off_by_default():
+    """默认 deep_categories=False 时不应请求类目页。"""
+    filters_widget = json.dumps({
+        "sections": [{"filters": [{
+            "type": "categoryFilter",
+            "categoryFilter": {
+                "title": "Категория",
+                "categories": [
+                    {"title": "Одежда", "level": 0, "urlValue": "/category/odezhda-7500/", "testInfo": {"automatizationId": "filter-category-item-7500"}},
+                ],
+            },
+        }]}]
+    })
+
+    class _FakeResp:
+        def __init__(self, payload):
+            self.status_code = 200
+            self.content = json.dumps(payload).encode("utf-8")
+            self.headers = {"content-type": "application/json"}
+
+        def raise_for_status(self):
+            pass
+
+    class _FakeAsyncClient:
+        def __init__(self):
+            self.calls = []
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, _url, params=None):
+            url = params.get("url", "") if params else ""
+            self.calls.append(url)
+            return _FakeResp({"widgetStates": {
+                "filtersDesktop-1": filters_widget,
+                "tileGridDesktop-1": json.dumps({"items": []}),
+            }})
+
+    client = _FakeAsyncClient()
+
+    async def _run():
+        async with client:
+            return await _search_term("dress", None, target=10, client=client, max_pages=1)
+
+    pages, items, categories = await _run()
+
+    assert all(not call.startswith("/category/") for call in client.calls)
+    assert "subcategories" not in categories[0]
 
 
 @pytest.mark.asyncio

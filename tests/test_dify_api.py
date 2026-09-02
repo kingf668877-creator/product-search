@@ -247,3 +247,54 @@ async def test_dify_openapi_requires_bearer(monkeypatch, tmp_path):
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/openapi/dify.json")
             assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_dify_search_accepts_deep_categories_flag(monkeypatch, tmp_path):
+    monkeypatch.setenv("OZON_DIFY_API_KEY", "dify-secret")
+    app = create_app(tmp_path / "dify_deep.db")
+    app.state.cookies.load([FakeCookie()])
+
+    sub_menu = json.dumps({
+        "items": [
+            {"title": "Женская одежда", "url": "/category/zhenskaya-odezhda-7501/"},
+        ]
+    })
+
+    seen_urls = []
+
+    def factory(_cookies):
+        def handler(request):
+            url = request.url.params["url"]
+            seen_urls.append(url)
+            if url.startswith("/category/"):
+                return httpx.Response(200, json={"widgetStates": {
+                    "horizontalCategoryMenu-1-default-1": sub_menu,
+                }})
+            return httpx.Response(200, json={"nextPage": None, "widgetStates": {
+                "filtersDesktop-1": json.dumps({
+                    "sections": [{"filters": [{
+                        "type": "categoryFilter",
+                        "categoryFilter": {"categories": [
+                            {"title": "Одежда", "level": 0, "urlValue": "/category/odezhda-7500/", "testInfo": {"automatizationId": "filter-category-item-7500"}},
+                        ]},
+                    }]}]
+                }),
+            }})
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler), cookies=_cookies)
+
+    app.state.runner._client_factory = factory
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/dify/search",
+                json={"keywords": ["dress"], "pages": 1, "target": 5, "preview": 5, "deep_categories": True},
+                headers={"Authorization": "Bearer dify-secret"},
+            )
+            assert response.status_code == 200
+            body = response.json()
+            assert any("/category/" in url for url in seen_urls)
+            assert body["results"][0]["categories"][0]["subcategories"][0]["id"] == "7501"
