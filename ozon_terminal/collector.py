@@ -304,8 +304,25 @@ async def _search_term(
     client: httpx.AsyncClient | None = None,
     page_fetcher: Callable | None = None,
     max_pages: int | None = None,
+    category: str | None = None,
+    price_min: int | None = None,
+    price_max: int | None = None,
+    sort: str | None = None,
 ) -> tuple[int, dict[str, dict[str, Any]]]:
-    params: dict[str, Any] = {"url": f"/search/?deny_category_prediction=true&from_global=true&text={quote(term)}"}
+    base_query: list[tuple[str, str]] = [
+        ("deny_category_prediction", "true"),
+        ("from_global", "true"),
+        ("text", term),
+    ]
+    if category:
+        base_query.append(("category", category))
+    if price_min is not None:
+        base_query.append(("minPrice", str(price_min)))
+    if price_max is not None:
+        base_query.append(("maxPrice", str(price_max)))
+    if sort:
+        base_query.append(("sort", sort))
+    params: dict[str, Any] = {"url": f"/search/?{urlencode(base_query)}"}
     unique_items: dict[str, dict[str, Any]] = {}
     pages = 0
 
@@ -358,6 +375,10 @@ async def search_one_keyword(
     client_factory: Callable | None = None,
     page_fetcher: Callable | None = None,
     max_pages: int | None = None,
+    category: str | None = None,
+    price_min: int | None = None,
+    price_max: int | None = None,
+    sort: str | None = None,
 ) -> dict[str, Any]:
     """按原关键词及俄语扩展词搜索，合并去重并按相关性排序。"""
     if not keyword or not keyword.strip():
@@ -365,7 +386,13 @@ async def search_one_keyword(
     terms = expand_keywords(keyword)
     requested_pages = max_pages if max_pages is not None else 100
     if page_fetcher is not None:
-        results = [await _search_term(term, None, target, page_fetcher=page_fetcher, max_pages=requested_pages) for term in terms]
+        results = [
+            await _search_term(
+                term, None, target, page_fetcher=page_fetcher, max_pages=requested_pages,
+                category=category, price_min=price_min, price_max=price_max, sort=sort,
+            )
+            for term in terms
+        ]
     else:
         if cookies is None:
             raise RuntimeError("需要先导入 Cookie 才能直连 Ozon")
@@ -379,7 +406,13 @@ async def search_one_keyword(
                 raise RuntimeError("client_factory 必须返回 httpx.AsyncClient")
             client_cm = produced
         async with client_cm as client:
-            results = [await _search_term(term, cookies, target, client=client, max_pages=requested_pages) for term in terms]
+            results = [
+                await _search_term(
+                    term, cookies, target, client=client, max_pages=requested_pages,
+                    category=category, price_min=price_min, price_max=price_max, sort=sort,
+                )
+                for term in terms
+            ]
     merged: dict[str, dict[str, Any]] = {}
     for term, (_, items) in zip(terms, results):
         for sku, item in items.items():

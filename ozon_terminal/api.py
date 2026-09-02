@@ -51,6 +51,20 @@ class KeywordRequest(BaseModel):
     pages: int | None = Field(default=None, ge=1, le=100)
     detail: bool = False
     fetcher: Literal["server", "browser"] = "server"
+    category: str | None = Field(default=None, max_length=64)
+    price_min: int | None = Field(default=None, ge=0, le=10_000_000)
+    price_max: int | None = Field(default=None, ge=0, le=10_000_000)
+    sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
+
+    @field_validator("price_max")
+    @classmethod
+    def price_bounds(cls, value: int | None, info) -> int | None:
+        if value is None:
+            return value
+        minimum = info.data.get("price_min")
+        if minimum is not None and value < minimum:
+            raise ValueError("price_max 不能小于 price_min")
+        return value
 
 
 class DifyBatchRequest(BaseModel):
@@ -58,6 +72,20 @@ class DifyBatchRequest(BaseModel):
     pages: int = Field(default=3, ge=1, le=20)
     target: int = Field(default=120, ge=1, le=500)
     preview: int = Field(default=120, ge=1, le=500)
+    category: str | None = Field(default=None, max_length=64)
+    price_min: int | None = Field(default=None, ge=0, le=10_000_000)
+    price_max: int | None = Field(default=None, ge=0, le=10_000_000)
+    sort: Literal["price", "price_desc", "relevance", "newest"] | None = None
+
+    @field_validator("price_max")
+    @classmethod
+    def price_bounds(cls, value: int | None, info) -> int | None:
+        if value is None:
+            return value
+        minimum = info.data.get("price_min")
+        if minimum is not None and value < minimum:
+            raise ValueError("price_max 不能小于 price_min")
+        return value
 
     @field_validator("keywords")
     @classmethod
@@ -234,6 +262,10 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                 runner._client_factory,
                 page_fetcher,
                 max_pages=spec.pages,
+                category=spec.category,
+                price_min=spec.price_min,
+                price_max=spec.price_max,
+                sort=spec.sort,
             )
         except RuntimeError as exc:
             raise HTTPException(400, str(exc)) from exc
@@ -294,6 +326,10 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     runner._client_factory,
                     None,
                     max_pages=spec.pages,
+                    category=spec.category,
+                    price_min=spec.price_min,
+                    price_max=spec.price_max,
+                    sort=spec.sort,
                 )
             except RuntimeError as exc:
                 raise HTTPException(400, f"{keyword}: {exc}") from exc
@@ -339,6 +375,10 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
                     "pages": {"type": "integer", "default": 3, "minimum": 1, "maximum": 20},
                     "target": {"type": "integer", "default": 120, "minimum": 1, "maximum": 500},
                     "preview": {"type": "integer", "default": 120, "minimum": 1, "maximum": 500},
+                    "category": {"type": "string", "description": "Ozon 类目数字 ID（如 7500 表示服装鞋与配饰）"},
+                    "price_min": {"type": "integer", "minimum": 0, "maximum": 10000000, "description": "最低价格（₽）"},
+                    "price_max": {"type": "integer", "minimum": 0, "maximum": 10000000, "description": "最高价格（₽），不能小于 price_min"},
+                    "sort": {"type": "string", "enum": ["price", "price_desc", "relevance", "newest"], "description": "Ozon 排序方式"},
                 },
             }
         dify_schemas = {

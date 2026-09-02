@@ -1,6 +1,6 @@
 import json
 import os
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qsl, urlsplit
 
 import httpx
 import pytest
@@ -176,6 +176,66 @@ async def test_dify_openapi_excludes_admin(monkeypatch, tmp_path):
             operation = spec["paths"]["/api/dify/search"]["post"]
             assert operation["security"] == [{"BearerAuth": []}]
             assert spec["components"]["securitySchemes"]["BearerAuth"]["scheme"] == "bearer"
+
+
+@pytest.mark.asyncio
+async def test_dify_search_forwards_filters(monkeypatch, tmp_path):
+    monkeypatch.setenv("OZON_DIFY_API_KEY", "dify-secret")
+    app = create_app(tmp_path / "dify_filters.db")
+    app.state.cookies.load([FakeCookie()])
+
+    seen_urls = []
+
+    def factory(_cookies):
+        def handler(request):
+            seen_urls.append(str(request.url))
+            return httpx.Response(200, json={"nextPage": None, "widgetStates": {}})
+
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler), cookies=_cookies)
+
+    app.state.runner._client_factory = factory
+
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/dify/search",
+                json={
+                    "keywords": ["dress"],
+                    "pages": 1,
+                    "category": "7500",
+                    "price_min": 1000,
+                    "price_max": 3000,
+                    "sort": "price",
+                },
+                headers={"Authorization": "Bearer dify-secret"},
+            )
+            assert response.status_code == 200
+            first_url = seen_urls[0]
+            parsed = parse_qsl(urlsplit(unquote(first_url)).query, keep_blank_values=True)
+            params = {k: v for k, v in parsed}
+            assert params.get("category") == "7500"
+            assert params.get("minPrice") == "1000"
+            assert params.get("maxPrice") == "3000"
+            assert params.get("sort") == "price"
+            assert params.get("text") == "dress"
+
+
+@pytest.mark.asyncio
+async def test_dify_search_rejects_invalid_price_range(monkeypatch, tmp_path):
+    monkeypatch.setenv("OZON_DIFY_API_KEY", "dify-secret")
+    app = create_app(tmp_path / "dify_price.db")
+    app.state.cookies.load([FakeCookie()])
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            headers = {"Authorization": "Bearer dify-secret"}
+            response = await client.post(
+                "/api/dify/search",
+                json={"keywords": ["dress"], "price_min": 3000, "price_max": 1000},
+                headers=headers,
+            )
+            assert response.status_code == 422
 
 
 @pytest.mark.asyncio
