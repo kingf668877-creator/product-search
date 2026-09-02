@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,14 @@ from .cookies import CookieVault
 from .database import Database
 from .exporter import to_csv, to_json
 from .browser_proxy import BrowserProxy
+
+
+DIFY_BEARER_SCHEME = "Bearer "
+DIFY_UNAUTHORIZED = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="缺少或无效的 Dify 鉴权密钥",
+    headers={"WWW-Authenticate": "Bearer"},
+)
 
 
 class JobCreate(BaseModel):
@@ -43,6 +51,40 @@ class KeywordRequest(BaseModel):
     pages: int | None = Field(default=None, ge=1, le=100)
     detail: bool = False
     fetcher: Literal["server", "browser"] = "server"
+
+
+class DifyBatchRequest(BaseModel):
+    keywords: list[str] = Field(min_length=1, max_length=10)
+    pages: int = Field(default=3, ge=1, le=20)
+    target: int = Field(default=120, ge=1, le=500)
+    preview: int = Field(default=120, ge=1, le=500)
+
+    @field_validator("keywords")
+    @classmethod
+    def clean_keywords(cls, value: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            if not isinstance(raw, str):
+                continue
+            stripped = raw.strip()
+            if not stripped or len(stripped) > 120:
+                continue
+            if stripped in seen:
+                continue
+            seen.add(stripped)
+            cleaned.append(stripped)
+        if not cleaned:
+            raise ValueError("keywords 不能为空")
+        return cleaned
+
+    @field_validator("preview")
+    @classmethod
+    def preview_within_target(cls, value: int, info) -> int:
+        target = info.data.get("target")
+        if target is not None and value > target:
+            return target
+        return value
 
 
 class BrowserCookiePayload(BaseModel):
@@ -219,6 +261,141 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
             if not fut.done():
                 return {"path": path}
         return {"path": None}
+
+    def _require_dify_key(request: Request) -> None:
+        expected = os.getenv("OZON_DIFY_API_KEY")
+        if not expected:
+            raise DIFY_UNAUTHORIZED
+        header = request.headers.get("authorization") or request.headers.get("Authorization") or ""
+        if not header.startswith(DIFY_BEARER_SCHEME):
+            raise DIFY_UNAUTHORIZED
+        token = header[len(DIFY_BEARER_SCHEME):].strip()
+        if not token or token != expected:
+            raise DIFY_UNAUTHORIZED
+
+    @app.post(
+        "/api/dify/search",
+        dependencies=[Depends(_require_dify_key)],
+        openapi_extra={},
+    )
+    async def dify_search(spec: DifyBatchRequest):
+        if not vault.ready:
+            raise HTTPException(409, "请先在网页端导入 Chrome Cookie 后再调用 Dify 搜索")
+        cookies = vault.snapshot()
+        results: list[dict[str, Any]] = []
+        for keyword in spec.keywords:
+            try:
+                result = await search_one_keyword(
+                    keyword,
+                    cookies,
+                    spec.target,
+                    spec.preview,
+                    False,
+                    runner._client_factory,
+                    None,
+                    max_pages=spec.pages,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(400, f"{keyword}: {exc}") from exc
+            results.append({
+                "keyword": result["keyword"],
+                "requested_pages": result["requested_pages"],
+                "pages": result["pages"],
+                "unique": result["unique"],
+                "returned": result["returned"],
+                "items": result["items"],
+            })
+        return {"count": len(results), "results": results}
+
+    @app.get("/openapi/dify.json")
+    def dify_openapi(_: None = Depends(_require_dify_key)):
+        spec = app.openapi()
+        operations = {
+            path: {
+                method: operation
+                for method, operation in path_item.items()
+                if isinstance(operation, dict)
+            }
+            for path, path_item in spec.get("paths", {}).items()
+            if path.startswith("/api/dify")
+        }
+        components = {
+            "securitySchemes": {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "API Key",
+                }
+            }
+        }
+        schemas = spec.get("components", {}).get("schemas", {})
+        dify_schema = schemas.get("DifyBatchRequest")
+        if not dify_schema:
+            dify_schema = {
+                "type": "object",
+                "required": ["keywords"],
+                "properties": {
+                    "keywords": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10},
+                    "pages": {"type": "integer", "default": 3, "minimum": 1, "maximum": 20},
+                    "target": {"type": "integer", "default": 120, "minimum": 1, "maximum": 500},
+                    "preview": {"type": "integer", "default": 120, "minimum": 1, "maximum": 500},
+                },
+            }
+        dify_schemas = {
+            "DifyBatchRequest": dify_schema,
+            "DifySearchResultItem": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string"},
+                    "title": {"type": "string"},
+                    "price": {"type": "string"},
+                    "original_price": {"type": "string"},
+                    "discount": {"type": "string"},
+                    "rating": {"type": "string"},
+                    "reviews": {"type": "string"},
+                    "stock": {"type": "string"},
+                    "link": {"type": "string"},
+                    "main_image": {"type": "string"},
+                    "images": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+            "DifyKeywordResult": {
+                "type": "object",
+                "properties": {
+                    "keyword": {"type": "string"},
+                    "requested_pages": {"type": "integer"},
+                    "pages": {"type": "integer"},
+                    "unique": {"type": "integer"},
+                    "returned": {"type": "integer"},
+                    "items": {"type": "array", "items": {"$ref": "#/components/schemas/DifySearchResultItem"}},
+                },
+            },
+            "DifySearchResponse": {
+                "type": "object",
+                "properties": {
+                    "count": {"type": "integer"},
+                    "results": {"type": "array", "items": {"$ref": "#/components/schemas/DifyKeywordResult"}},
+                },
+            },
+        }
+        dify_security = [{"BearerAuth": []}]
+        return {
+            "openapi": "3.0.3",
+            "info": {
+                "title": "Ozon Search API for Dify",
+                "version": "0.1.0",
+                "description": "供 Dify 智能体调用的 Ozon 关键词搜索接口。需通过 Bearer 鉴权，并保证后端已注入 Ozon Cookie。",
+            },
+            "servers": [{"url": "https://yidong.dianleida.net:21997"}],
+            "paths": {
+                path: {
+                    **path_item,
+                    **{method: {**operation, "security": dify_security} for method, operation in path_item.items()},
+                }
+                for path, path_item in operations.items()
+            },
+            "components": {"schemas": dify_schemas, **components},
+        }
 
     static = Path(__file__).parent / "static"
     app.mount("/", StaticFiles(directory=static, html=True), name="static")

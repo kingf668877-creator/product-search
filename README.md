@@ -50,6 +50,46 @@ python -m ozon_terminal serve --host 0.0.0.0 --port 9001
 - 不会随 CSV/JSON 导出；服务退出或调用 `DELETE /api/cookies` 时会同时清除内存与数据库
 - Ozon 的会话 token 有 TTL，过期后需重新粘贴 Cookie Header
 
+## Dify 接入
+
+供 Dify 智能体调用的搜索接口独立部署在专用入口，使用 Bearer 鉴权，不暴露 Cookie 管理能力。
+
+- 搜索接口：`POST https://yidong.dianleida.net:21997/api/dify/search`
+- OpenAPI Schema：`GET https://yidong.dianleida.net:21997/openapi/dify.json`（同样需要 Bearer）
+- 鉴权请求头：`Authorization: Bearer <OZON_DIFY_API_KEY>`
+- 环境变量：在启动 `9001` 服务前设置 `OZON_DIFY_API_KEY`，重启服务即可生效；未配置时该入口默认拒绝调用
+
+请求体示例：
+
+```json
+{
+  "keywords": ["外套", "男士"],
+  "pages": 3,
+  "target": 120,
+  "preview": 120
+}
+```
+
+响应结构：
+
+```json
+{
+  "count": 2,
+  "results": [
+    {
+      "keyword": "外套",
+      "requested_pages": 3,
+      "pages": 3,
+      "unique": 92,
+      "returned": 92,
+      "items": []
+    }
+  ]
+}
+```
+
+Dify 中选择“自定义工具 → OpenAPI Schema”，导入 `https://yidong.dianleida.net:21997/openapi/dify.json`，在工具鉴权处填写 Bearer Token 即可。
+
 ## 仓库地址
 
 - 默认远端：`<your-account>/product-search`
