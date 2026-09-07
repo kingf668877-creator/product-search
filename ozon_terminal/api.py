@@ -173,6 +173,12 @@ def create_app(db_path: str | Path | None = None, client_factory=None) -> FastAP
         db.clear_cookie_header()
         return {"ready": False}
 
+    @app.delete("/api/admin/clear-results")
+    def clear_results():
+        """清空所有已采集的商品结果（records + jobs），Cookie 不动。"""
+        deleted = db.clear_all_records()
+        return {"deleted_records": deleted, "cookies_kept": True}
+
     @app.post("/api/cookies/upload")
     def upload_cookies(payload: BrowserCookiePayload):
         try:

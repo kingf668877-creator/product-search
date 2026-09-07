@@ -1,7 +1,14 @@
 // Ozon 选品库：批量关键词搜索与按关键词分组展示。
 const $ = (s) => document.querySelector(s);
 const API_BASE = window.location.origin;
+// 商品结果全部在 `state` 内存里：刷新 / 关闭页面 / 关闭浏览器即清，**不写 localStorage / 不落库**。
 const state = { groups: [], cookieReady: false, cookieCount: 0, running: false };
+
+// 关闭 / 刷新页面前主动清一次，避免任何残留引用停留在闭包里
+window.addEventListener('beforeunload', () => {
+  state.groups.length = 0;
+  state.running = false;
+});
 
 function apiUrl(path) { return `${API_BASE}${path}`; }
 function esc(value) {

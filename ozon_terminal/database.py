@@ -107,6 +107,15 @@ class Database:
         rows = self._conn.execute("SELECT data_json FROM records WHERE job_id=? ORDER BY id", (job_id,)).fetchall()
         return [json.loads(row[0]) for row in rows]
 
+    def clear_all_records(self) -> int:
+        """清空所有采集结果（records + jobs）。Cookie 不动。"""
+        with self._lock, self._conn:
+            records = self._conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+            self._conn.execute("DELETE FROM records")
+            self._conn.execute("DELETE FROM jobs")
+            self._conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('records', 'jobs')")
+            return records
+
     def upsert_cookie_header(self, header: str, domain: str) -> None:
         with self._lock, self._conn:
             self._conn.execute(
